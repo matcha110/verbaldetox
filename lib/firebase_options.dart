@@ -71,4 +71,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'verbaldetox-8d690.firebasestorage.app',
     iosBundleId: 'com.example.verbaldetox',
   );
+
 }
