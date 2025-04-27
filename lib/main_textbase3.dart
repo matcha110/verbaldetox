@@ -467,9 +467,7 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
   bool _loading = false;
 
   Color?  _resultColor;
-  String? _docId;       // ★ 追加: Firestore ドキュメント ID
-  double? _resultX;     // ★ 追加: グラフ描画用（念のため保持）
-  double? _resultY;
+  String? _docId;   // Firestore ドキュメント ID
 
   /// API へ送信して分析
   Future<void> _send() async {
@@ -493,16 +491,12 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
       );
 
       // ─── 2) 色 & 座標を取得 ───
-      final String hex = res.data['color'] as String;      // "#A1B2C3"
-      final int    xi  = (res.data['x'] as num).toInt();
-      final int    yi  = (res.data['y'] as num).toInt();
+      final String hex = res.data['color'] as String;
       final col = Color(int.parse('0xff' + hex.substring(1)));
 
       setState(() {
         _resultColor = col;
-        _resultX     = xi.toDouble();
-        _resultY     = yi.toDouble();
-        _docId       = '${uid}_$date';   // Firestore ドキュメント ID
+        _docId       = '${uid}_$date';   // StreamBuilder が購読
       });
 
     } catch (e) {
@@ -557,16 +551,17 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
               if (!snap.hasData || !snap.data!.exists) {
                 return const SizedBox.shrink();
               }
-              final data = snap.data!.data()!;
-              final colorHex = (data['color'] ?? '#88E0A6') as String;
-              final col = Color(
-                  int.parse(colorHex.substring(1), radix: 16) + 0xFF000000);
-              final double x = (data['x'] as num).toDouble();
-              final double y = (data['y'] as num).toDouble();
+
+              final data      = snap.data!.data()!;
+              final colorHex  = (data['color']  ?? '#88E0A6') as String;
+              final col       = Color(int.parse(colorHex.substring(1), radix: 16) + 0xFF000000);
+              final double fun    = (data['fun']    ?? 0).toDouble();
+              final double bright = (data['bright'] ?? 0).toDouble();
+              final double energy = (data['energy'] ?? 0).toDouble();
 
               return Column(
                 children: [
-                  // ── 四角の色 ──
+                  // ── 色ブロック ──
                   const Text('結果のカラーコード:'),
                   const SizedBox(height: 8),
                   Container(
@@ -583,33 +578,35 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
 
                   const SizedBox(height: 24),
 
-                  // ── 2D グラフ ──
+                  // ── RadarChart ──
                   SizedBox(
-                    height: 240,
-                    child: ScatterChart(
-                      ScatterChartData(
-                        minX: -10,
-                        maxX:  10,
-                        minY: -10,
-                        maxY:  10,
-                        gridData: FlGridData(show: true),
-                        borderData: FlBorderData(show: true),
-                        titlesData: FlTitlesData(
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: true),
-                          ),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: true),
-                          ),
+                    height: 260,
+                    child: RadarChart(
+                      RadarChartData(
+                        radarShape: RadarShape.polygon,
+                        tickCount: 5,
+                        titlePositionPercentageOffset: 0.18,
+                        titleTextStyle: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
                         ),
-                        scatterSpots: [
-                          ScatterSpot(
-                            x,
-                            y,
-                            dotPainter: FlDotCirclePainter(
-                              color: Colors.red,
-                              radius: 8,
-                            ),
+                        getTitle: (index, angle) {
+                          const labels = ['楽しさ', '明るさ', '元気'];
+                          return RadarChartTitle(
+                            text: labels[index],
+                            angle: angle,
+                          );
+                        },
+                        dataSets: [
+                          RadarDataSet(
+                            dataEntries: [
+                              RadarEntry(value: fun),
+                              RadarEntry(value: bright),
+                              RadarEntry(value: energy),
+                            ],
+                            fillColor: Theme.of(context).primaryColor.withOpacity(.35),
+                            borderColor: Theme.of(context).primaryColor,
+                            entryRadius: 4,
                           ),
                         ],
                       ),

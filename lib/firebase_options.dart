@@ -25,15 +25,9 @@ class DefaultFirebaseOptions {
       case TargetPlatform.iOS:
         return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -47,29 +41,47 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyA94SmzKs143TA_TjCmJsDA9pBZmT3wcIA',
-    appId: '1:948835868913:web:1b7d4d0da1d45f9328c950',
-    messagingSenderId: '948835868913',
-    projectId: 'verbaldetox-8d690',
-    authDomain: 'verbaldetox-8d690.firebaseapp.com',
-    storageBucket: 'verbaldetox-8d690.firebasestorage.app',
+    apiKey: 'AIzaSyBFXHRwv7qm6vkFZR04TfSXH6qveuQFJck',
+    appId: '1:160302376986:web:c6a328c0c2df92705489a3',
+    messagingSenderId: '160302376986',
+    projectId: 'zenn-hackthon-2',
+    authDomain: 'zenn-hackthon-2.firebaseapp.com',
+    storageBucket: 'zenn-hackthon-2.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBdVgJqei58ToZr0Ex0LDpjzP1iPWdmPvU',
-    appId: '1:948835868913:android:7d140dbdafe0e23a28c950',
-    messagingSenderId: '948835868913',
-    projectId: 'verbaldetox-8d690',
-    storageBucket: 'verbaldetox-8d690.firebasestorage.app',
+    apiKey: 'AIzaSyDKai3wxfqG9epJiqSK1UBYMMoF3ntvpD8',
+    appId: '1:160302376986:android:9f967a275901f65f5489a3',
+    messagingSenderId: '160302376986',
+    projectId: 'zenn-hackthon-2',
+    storageBucket: 'zenn-hackthon-2.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAs-DpbccLk2MlxEgemcDVqRGDMGNu7s_E',
-    appId: '1:948835868913:ios:89e51afe5c86f0af28c950',
-    messagingSenderId: '948835868913',
-    projectId: 'verbaldetox-8d690',
-    storageBucket: 'verbaldetox-8d690.firebasestorage.app',
+    apiKey: 'AIzaSyCtQ9sGNHtdmbx8jh17gWBdrXV5fXSBOR8',
+    appId: '1:160302376986:ios:8a80424733b7b2345489a3',
+    messagingSenderId: '160302376986',
+    projectId: 'zenn-hackthon-2',
+    storageBucket: 'zenn-hackthon-2.firebasestorage.app',
     iosBundleId: 'com.example.verbaldetox',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyCtQ9sGNHtdmbx8jh17gWBdrXV5fXSBOR8',
+    appId: '1:160302376986:ios:8a80424733b7b2345489a3',
+    messagingSenderId: '160302376986',
+    projectId: 'zenn-hackthon-2',
+    storageBucket: 'zenn-hackthon-2.firebasestorage.app',
+    iosBundleId: 'com.example.verbaldetox',
+  );
+
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyBFXHRwv7qm6vkFZR04TfSXH6qveuQFJck',
+    appId: '1:160302376986:web:55393fcec0639cc45489a3',
+    messagingSenderId: '160302376986',
+    projectId: 'zenn-hackthon-2',
+    authDomain: 'zenn-hackthon-2.firebaseapp.com',
+    storageBucket: 'zenn-hackthon-2.firebasestorage.app',
   );
 
 }

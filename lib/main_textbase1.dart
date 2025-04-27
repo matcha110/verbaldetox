@@ -10,7 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
-import 'package:fl_chart/fl_chart.dart';
+
 import 'firebase_options.dart';
 
 /// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
@@ -461,17 +461,11 @@ class TextInputPage extends ConsumerStatefulWidget {
   @override
   ConsumerState<TextInputPage> createState() => _TextInputPageState();
 }
-
 class _TextInputPageState extends ConsumerState<TextInputPage> {
   final _ctrl = TextEditingController();
   bool _loading = false;
+  Color? _resultColor;
 
-  Color?  _resultColor;
-  String? _docId;       // ★ 追加: Firestore ドキュメント ID
-  double? _resultX;     // ★ 追加: グラフ描画用（念のため保持）
-  double? _resultY;
-
-  /// API へ送信して分析
   Future<void> _send() async {
     if (_ctrl.text.isEmpty) return;
     setState(() => _loading = true);
@@ -482,7 +476,7 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
     final url  = dotenv.env['API_URL']! + '/diary';
 
     try {
-      // ─── 1) API 呼び出し ───
+      // 1) テキストを送って色だけ受け取る
       final res = await dio.post(
         url,
         data: FormData.fromMap({
@@ -491,19 +485,16 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
           'text': _ctrl.text,
         }),
       );
-
-      // ─── 2) 色 & 座標を取得 ───
-      final String hex = res.data['color'] as String;      // "#A1B2C3"
-      final int    xi  = (res.data['x'] as num).toInt();
-      final int    yi  = (res.data['y'] as num).toInt();
+      final hex = res.data['color'] as String;      // "#A1B2C3"
       final col = Color(int.parse('0xff' + hex.substring(1)));
 
-      setState(() {
-        _resultColor = col;
-        _resultX     = xi.toDouble();
-        _resultY     = yi.toDouble();
-        _docId       = '${uid}_$date';   // Firestore ドキュメント ID
-      });
+      // // 2) Firestore への保存を Flutter 側で実行
+      // await ref
+      //     .read(heatmapProvider.notifier)
+      //     .setColorForDate(DateTime.now(), col);
+
+      // 3) UI 更新用の _resultColor もセット
+      setState(() => _resultColor = col);
 
     } catch (e) {
       debugPrint('Error: $e');
@@ -512,17 +503,9 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
     }
   }
 
+
   @override
   Widget build(BuildContext ctx) {
-    final uid  = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
-    final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final defaultDocId = '${uid}_$date';
-
-    // docId 未設定なら当日分を指す
-    final docRef = FirebaseFirestore.instance
-        .collection('diary')
-        .doc(_docId ?? defaultDocId);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('感情分析'),
@@ -531,7 +514,6 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(children: [
-          // ─── 入力欄 ───
           TextField(
             controller: _ctrl,
             maxLines: 3,
@@ -548,77 +530,21 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
                 : const Text('分析'),
           ),
           const SizedBox(height: 24),
-
-          // ─── 色 & 座標を Firestore からリアルタイム取得 ───
-          StreamBuilder(
-            stream: docRef.snapshots(),
-            builder: (context,
-                AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snap) {
-              if (!snap.hasData || !snap.data!.exists) {
-                return const SizedBox.shrink();
-              }
-              final data = snap.data!.data()!;
-              final colorHex = (data['color'] ?? '#88E0A6') as String;
-              final col = Color(
-                  int.parse(colorHex.substring(1), radix: 16) + 0xFF000000);
-              final double x = (data['x'] as num).toDouble();
-              final double y = (data['y'] as num).toDouble();
-
-              return Column(
-                children: [
-                  // ── 四角の色 ──
-                  const Text('結果のカラーコード:'),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: col,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.black26),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('hex: $colorHex'),
-
-                  const SizedBox(height: 24),
-
-                  // ── 2D グラフ ──
-                  SizedBox(
-                    height: 240,
-                    child: ScatterChart(
-                      ScatterChartData(
-                        minX: -10,
-                        maxX:  10,
-                        minY: -10,
-                        maxY:  10,
-                        gridData: FlGridData(show: true),
-                        borderData: FlBorderData(show: true),
-                        titlesData: FlTitlesData(
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: true),
-                          ),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: true),
-                          ),
-                        ),
-                        scatterSpots: [
-                          ScatterSpot(
-                            x,
-                            y,
-                            dotPainter: FlDotCirclePainter(
-                              color: Colors.red,
-                              radius: 8,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
+          if (_resultColor != null) ...[
+            const Text('結果のカラーコード:'),
+            const SizedBox(height: 8),
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: _resultColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.black26),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text('hex: #${_resultColor!.value.toRadixString(16).substring(2).toUpperCase()}'),
+          ],
         ]),
       ),
     );
