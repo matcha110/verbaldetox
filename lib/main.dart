@@ -8,13 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_heatmap_calendar/flutter_heatmap_calendar.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 
 import 'firebase_options.dart';
 
-/// 🔄 Stream を監視して ChangeNotifier として使うだけのシンプルな実装
+/// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     _sub = stream.listen((_) => notifyListeners());
@@ -34,7 +33,6 @@ class AuthService {
 
   User? get currentUser => _auth.currentUser;
 
-  /// Google サインイン
   Future<UserCredential?> signInWithGoogle() async {
     final googleUser = await _google.signIn();
     if (googleUser == null) return null;
@@ -46,12 +44,10 @@ class AuthService {
     return _auth.signInWithCredential(cred);
   }
 
-  /// Email/Password ログイン
   Future<UserCredential> signInWithEmail(String email, String pass) {
     return _auth.signInWithEmailAndPassword(email: email, password: pass);
   }
 
-  /// Email/Password 新規登録
   Future<UserCredential> signUpWithEmail(String email, String pass) {
     return _auth.createUserWithEmailAndPassword(email: email, password: pass);
   }
@@ -63,60 +59,78 @@ class AuthService {
 }
 final authProvider = Provider((ref) => AuthService());
 
-/// Firestore と同期させる Heatmap 用 StateNotifier
-class HeatmapNotifier extends StateNotifier<Map<DateTime,int>> {
-  HeatmapNotifier(): super({}) {
-    _load();
-  }
-  final _db = FirebaseFirestore.instance;
-
-  Future<void> _load() async {
-    final snap = await _db.collection('diary').get();
-    final m = <DateTime,int>{};
-    for (var doc in snap.docs) {
-      final data = doc.data();
-      final ds = data['date'] as String; // "yyyy-MM-dd"
-      final lvl = data['level'] as int;
-      final parts = ds.split('-');
-      if (parts.length == 3) {
-        final d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-        m[d] = lvl;
+/// 日付→Color を保持する StateNotifier
+class HeatmapNotifier extends StateNotifier<Map<DateTime, Color>> {
+  HeatmapNotifier() : super({}) {
+    // Firestore の diary コレクションをリアルタイム購読
+    _sub = _db.collection('diary').snapshots().listen((snap) {
+      // ───── ここからデバッグ用ログ ─────
+      debugPrint('🔥 Got ${snap.size} docs from /diary');
+      for (final d in snap.docs) {
+        debugPrint('  • ${d.id} → ${d.data()}');
       }
-    }
-    state = m;
+      // ───── ここまで ─────
+
+      // 既存のマップ更新ロジック
+      final m = <DateTime, Color>{};
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final ds  = data['date']  as String;
+        final hex = data['color'] as String;
+        final parts = ds.split('-');
+        if (parts.length == 3) {
+          final d = DateTime(
+            int.parse(parts[0]),
+            int.parse(parts[1]),
+            int.parse(parts[2]),
+          );
+          m[d] = Color(int.parse(hex.replaceFirst('#', '0xff')));
+        }
+      }
+      state = m;
+    });
   }
 
-  Future<void> setLevelForDate(DateTime date, int level) async {
-    final key = DateFormat('yyyy-MM-dd').format(date);
-    await _db.collection('diary').doc(key).set({
-      'date': key,
-      'level': level,
-    });
-    state = {...state, date: level};
+  final _db = FirebaseFirestore.instance;
+  late final StreamSubscription<QuerySnapshot<Map<String, dynamic>>> _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  Future<void> setColorForDate(DateTime date, Color color) async {
+    state = { ...state, date: color };
   }
 }
-final heatmapProvider = StateNotifierProvider<HeatmapNotifier, Map<DateTime,int>>(
+
+
+final heatmapProvider = StateNotifierProvider<HeatmapNotifier, Map<DateTime, Color>>(
       (ref) => HeatmapNotifier(),
 );
 
 Future<void> main() async {
   await dotenv.load();
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const ProviderScope(child: VerbalDetoxApp()));
 }
 
-/// アプリ全体
+/// アプリ全体ルーティング
 class VerbalDetoxApp extends ConsumerWidget {
   const VerbalDetoxApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext c, WidgetRef ref) {
-    final auth = ref.watch(authProvider);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth     = ref.watch(authProvider);
     final loggedIn = auth.currentUser != null;
 
     final router = GoRouter(
       debugLogDiagnostics: true,
+      initialLocation: loggedIn ? '/' : '/login',
       refreshListenable: GoRouterRefreshStream(
         FirebaseAuth.instance.authStateChanges(),
       ),
@@ -126,19 +140,14 @@ class VerbalDetoxApp extends ConsumerWidget {
         GoRoute(path: '/',       builder: (_, __) => const HomePage()),
         GoRoute(path: '/input',  builder: (_, __) => const TextInputPage()),
       ],
-      redirect: (BuildContext ctx, GoRouterState state) {
-        // state.matchedLocation で「現在マッチしているルートのパス」を取得
-        final isOnAuthPage = state.matchedLocation == '/login' || state.matchedLocation == '/signup';
-        final isLoggedIn  = FirebaseAuth.instance.currentUser != null;
-
-        // ログインしていないのに /login でも /signup でもないなら /login へ飛ばす
-        if (!isLoggedIn && !isOnAuthPage) return '/login';
-        // ログイン済みなのに /login or /signup にいるならホームへ
-        if (isLoggedIn  &&  isOnAuthPage) return '/';
-
-        return null; // それ以外は何もしない
+      redirect: (_, state) {
+        final onAuth = state.matchedLocation == '/login' ||
+            state.matchedLocation == '/signup';
+        final isLogged = FirebaseAuth.instance.currentUser != null;
+        if (!isLogged && !onAuth) return '/login';
+        if (isLogged  && onAuth) return '/';
+        return null;
       },
-
     );
 
     return MaterialApp.router(
@@ -180,13 +189,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: _loading ? null : () async {
+            onPressed: _loading
+                ? null
+                : () async {
               setState(() => _loading = true);
               try {
                 await auth.signInWithEmail(_email, _pass);
-                context.go('/');
-              } on FirebaseAuthException catch (e) {
-                // エラー処理（省略可能）
+                ctx.go('/');
+              } on FirebaseAuthException {
+                // TODO: エラー表示
               }
               setState(() => _loading = false);
             },
@@ -243,13 +254,15 @@ class _SignupPageState extends ConsumerState<SignupPage> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: _loading ? null : () async {
+            onPressed: _loading
+                ? null
+                : () async {
               setState(() => _loading = true);
               try {
                 await auth.signUpWithEmail(_email, _pass);
                 context.go('/');
-              } on FirebaseAuthException catch (e) {
-                // エラー処理
+              } on FirebaseAuthException {
+                // TODO: エラー表示
               }
               setState(() => _loading = false);
             },
@@ -263,44 +276,179 @@ class _SignupPageState extends ConsumerState<SignupPage> {
   }
 }
 
-/// ホーム画面
-class HomePage extends ConsumerWidget {
+/// ホーム画面：月／年 のタブで切り替え
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({Key? key}) : super(key: key);
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.read(authProvider);
-    final data = ref.watch(heatmapProvider);
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('VerbalDetox'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await auth.signOut();
-              context.go('/login');
-            },
-          )
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push('/input'),
-        child: const Icon(Icons.text_fields),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: HeatMapCalendar(
-          defaultColor: Colors.grey.shade300,
-          flexible: true,
-          datasets: data,
-          colorMode: ColorMode.color,
-          colorsets: const {
-            1: Color(0xFF9EC5FE),
-            2: Color(0xFF88E0A6),
-            3: Color(0xFFFBC252),
-            4: Color(0xFFF96E46),
-          },
+class _HomePageState extends ConsumerState<HomePage> {
+  bool _showText = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.read(authProvider);
+    final data = ref.watch(heatmapProvider); // Map<DateTime, Color>
+    final today = DateTime.now();
+    final year  = today.year;
+    final month = today.month;
+
+    // 月初と月末
+    final firstDayOfMonth = DateTime(year, month, 1);
+    final daysInMonth = DateUtils.getDaysInMonth(year, month);
+    final startOffset = firstDayOfMonth.weekday % 7;
+    final totalCount = ((startOffset + daysInMonth) % 7 == 0)
+        ? startOffset + daysInMonth
+        : ((startOffset + daysInMonth) / 7).ceil() * 7;
+    final monthCells = List<DateTime?>.generate(totalCount, (i) {
+      final d = i - startOffset + 1;
+      if (i < startOffset || d > daysInMonth) return null;
+      return DateTime(year, month, d);
+    });
+
+    // 曜日ラベル（日〜土）
+    const weekLabels = ['日','月','火','水','木','金','土'];
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('${year}年${month}月'),
+          bottom: const TabBar(
+            tabs: [Tab(text: '月表示'), Tab(text: '年表示')],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () async {
+                await auth.signOut();
+                context.go('/login');
+              },
+            ),
+            Row(
+              children: [
+                const Text('文字'),
+                Switch(
+                  value: _showText,
+                  onChanged: (v) => setState(() => _showText = v),
+                ),
+              ],
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => context.push('/input'),
+          child: const Icon(Icons.text_fields),
+        ),
+        body: TabBarView(
+          children: [
+            // ───── 月表示 ─────
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // 曜日ヘッダー
+                  Row(
+                    children: weekLabels.map((w) =>
+                        Expanded(child: Center(child: Text(w, style: const TextStyle(fontWeight: FontWeight.bold))))
+                    ).toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  // 月カレンダー
+                  Expanded(
+                    child: GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 7,
+                        childAspectRatio: 1,
+                        mainAxisSpacing: 4,
+                        crossAxisSpacing: 4,
+                      ),
+                      itemCount: monthCells.length,
+                      itemBuilder: (ctx, idx) {
+                        final date = monthCells[idx];
+                        if (date == null) return const SizedBox();
+                        final col = data[date] ?? Colors.grey.shade300;
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: col,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                          alignment: Alignment.topLeft,
+                          padding: const EdgeInsets.all(4),
+                          child: _showText
+                              ? Text('${date.day}', style: const TextStyle(fontSize: 12, color: Colors.white))
+                              : null,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ───── 年表示 ─────
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: GridView.count(
+                crossAxisCount: 3,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                children: List.generate(12, (mi) {
+                  final m = mi + 1;
+                  // 各月のセル生成
+                  final fd = DateTime(year, m, 1);
+                  final dim = DateUtils.getDaysInMonth(year, m);
+                  final off = fd.weekday % 7;
+                  final cnt = ((off + dim) % 7 == 0)
+                      ? off + dim
+                      : ((off + dim) / 7).ceil() * 7;
+                  final cells = List<DateTime?>.generate(cnt, (i) {
+                    final d = i - off + 1;
+                    if (i < off || d > dim) return null;
+                    return DateTime(year, m, d);
+                  });
+                  return Column(
+                    children: [
+                      Text('$m月', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Expanded(
+                        child: GridView.builder(
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 7,
+                            childAspectRatio: 1,
+                            mainAxisSpacing: 2,
+                            crossAxisSpacing: 2,
+                          ),
+                          itemCount: cells.length,
+                          itemBuilder: (ctx, idx) {
+                            final date = cells[idx];
+                            if (date == null) return const SizedBox();
+                            final col = data[date] ?? Colors.grey.shade300;
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: col,
+                                borderRadius: BorderRadius.circular(2),
+                                border: Border.all(color: Colors.black12, width: 0.5),
+                              ),
+                              alignment: Alignment.topLeft,
+                              padding: const EdgeInsets.all(2),
+                              child: _showText
+                                  ? Text('${date.day}', style: const TextStyle(fontSize: 8, color: Colors.white))
+                                  : null,
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -322,30 +470,39 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
     if (_ctrl.text.isEmpty) return;
     setState(() => _loading = true);
 
-    final dio = Dio();
+    final dio  = Dio();
     final uid  = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
-    final date = DateFormat('yyyyMMdd').format(DateTime.now());
+    final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final url  = dotenv.env['API_URL']! + '/diary';
 
     try {
-      final res = await dio.post(url, data: FormData.fromMap({
-        'uid': uid,
-        'date': date,
-        'text': _ctrl.text,
-      }));
-      final lvl = res.data['level'] as int;
-      final hex = res.data['color'] as String;
-      await ref.read(heatmapProvider.notifier)
-          .setLevelForDate(DateTime.now(), lvl);
-      setState(() {
-        _resultColor = Color(int.parse(hex.replaceFirst('#','0xff')));
-      });
-    } catch (_) {
-      // error
-    }
+      // 1) テキストを送って色だけ受け取る
+      final res = await dio.post(
+        url,
+        data: FormData.fromMap({
+          'uid':  uid,
+          'date': date,
+          'text': _ctrl.text,
+        }),
+      );
+      final hex = res.data['color'] as String;      // "#A1B2C3"
+      final col = Color(int.parse('0xff' + hex.substring(1)));
 
-    setState(() => _loading = false);
+      // // 2) Firestore への保存を Flutter 側で実行
+      // await ref
+      //     .read(heatmapProvider.notifier)
+      //     .setColorForDate(DateTime.now(), col);
+
+      // 3) UI 更新用の _resultColor もセット
+      setState(() => _resultColor = col);
+
+    } catch (e) {
+      debugPrint('Error: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
   }
+
 
   @override
   Widget build(BuildContext ctx) {
@@ -374,7 +531,7 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
           ),
           const SizedBox(height: 24),
           if (_resultColor != null) ...[
-            const Text('結果の色:'),
+            const Text('結果のカラーコード:'),
             const SizedBox(height: 8),
             Container(
               width: 100,
@@ -385,6 +542,8 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
                 border: Border.all(color: Colors.black26),
               ),
             ),
+            const SizedBox(height: 8),
+            Text('hex: #${_resultColor!.value.toRadixString(16).substring(2).toUpperCase()}'),
           ],
         ]),
       ),
