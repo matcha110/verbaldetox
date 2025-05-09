@@ -867,27 +867,25 @@ class MoodGraphPainter extends CustomPainter {
         right: true);
 
     // 中央の四辺（High/Low）
-    // 上中央：High arousal（↓に移動）
     _drawTextCenter(
       canvas,
-      'High arousal',
-      Offset(halfW, edgePad + vOffset),      // ← edgePad に +vOffset
+      '覚醒\n(arousing)',
+      Offset(halfW, edgePad + vOffset),
     );
 
-    // 下中央：Low arousal（↑に移動）
     _drawTextCenter(
       canvas,
-      'Low arousal',
-      Offset(halfW, h - edgePad - vOffset - 14), // ← -vOffset
+      '沈静(sleepy)',
+      Offset(halfW, h - edgePad - vOffset - 14),
     );            // 下中央
 
     _drawTextCenter(canvas,
-        'Low valence\n[Negative]',
+        '不快\n(unpleasure)',
         Offset(edgePad, halfH),
         align: TextAlign.left, anchorCenter: true);   // 左中央
 
     _drawTextCenter(canvas,
-        'High valence\n[Positive]',
+        '快\n(Preasure)',
         Offset(w - edgePad, halfH),
         align: TextAlign.right, anchorCenter: true);  // 右中央
   }
@@ -899,7 +897,7 @@ class MoodGraphPainter extends CustomPainter {
         text: s,
         style: const TextStyle(fontSize: 11, color: Colors.black87),
       ),
-      textDirection: ui.TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,  //ui.が必要
     )..layout(maxWidth: maxW);
     tp.paint(canvas, pos);
   }
@@ -913,7 +911,7 @@ class MoodGraphPainter extends CustomPainter {
         style: const TextStyle(fontSize: 11, color: Colors.black87),
       ),
       textAlign: align,
-      textDirection: ui.TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,  //ui.が必要
     )..layout();
     final dx = anchorCenter ? pos.dx - (align == TextAlign.right ? tp.width : 0)
         : pos.dx - tp.width / 2;
