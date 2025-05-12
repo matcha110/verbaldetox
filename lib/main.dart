@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
@@ -11,13 +10,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:verbaldetox/AudioRecordPage.dart';
 
 import 'firebase_options.dart';
 import 'utils/color_mix.dart';        // mixEmotionColors() の定義
 import 'providers/user_prefs.dart';   // userPrefsProvider の定義
-import 'package:fl_chart/fl_chart.dart';
+import 'AudioRecordPage.dart';
 import 'dart:math';
 import 'dart:ui' as ui;
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
+
 
 /// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -73,7 +78,8 @@ class AppShell extends ConsumerWidget {
 
   int _calculateSelectedIndex(String location) {
     if (location.startsWith('/input')) return 1;
-    if (location.startsWith('/settings')) return 2;
+    if (location.startsWith('/record')) return 2;   // ← 追加
+    if (location.startsWith('/settings')) return 3;
     return 0;
   }
 
@@ -86,6 +92,9 @@ class AppShell extends ConsumerWidget {
         context.go('/input');
         break;
       case 2:
+        context.go('/record');    // ← 追加
+        break;
+      case 3:
         context.go('/settings');
         break;
     }
@@ -111,18 +120,10 @@ class AppShell extends ConsumerWidget {
         currentIndex: selected,
         onTap: (idx) => _onItemTapped(context, idx),
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'HOME',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.book),
-            label: '日記',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'プロフィール',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home),   label: 'HOME'),
+          BottomNavigationBarItem(icon: Icon(Icons.book),   label: '日記'),
+          BottomNavigationBarItem(icon: Icon(Icons.mic),    label: '録音'),        // ← 追加
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'プロフィール'),
         ],
       ),
     );
@@ -190,21 +191,20 @@ class VerbalDetoxApp extends ConsumerWidget {
       refreshListenable: GoRouterRefreshStream(
         FirebaseAuth.instance.authStateChanges(),
       ),
-      debugLogDiagnostics: false,
       routes: [
-        GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
+        GoRoute(path: '/login',  builder: (_, __) => const LoginPage()),
         GoRoute(path: '/signup', builder: (_, __) => const SignupPage()),
         ShellRoute(
-          builder: (context, state, child) => AppShell(child: child),
+          builder: (ctx, state, child) => AppShell(child: child),
           routes: [
-            GoRoute(path: '/', builder: (_, __) => const HomePage()),
-            GoRoute(path: '/input', builder: (_, __) => const TextInputPage()),
-            GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
+            GoRoute(path: '/',       builder: (_, __) => const HomePage()),
+            GoRoute(path: '/input',  builder: (_, __) => const TextInputPage()),
+            GoRoute(path: '/record', builder: (_, __) => const AudioRecordPage()),
+            GoRoute(path: '/settings',builder: (_, __) => const SettingsPage()),
           ],
         ),
       ],
       redirect: (_, state) {
-        // redirect でも state.uri を使用
         final loc = state.uri.toString();
         final onAuth = loc == '/login' || loc == '/signup';
         final isLogged = FirebaseAuth.instance.currentUser != null;
@@ -213,6 +213,7 @@ class VerbalDetoxApp extends ConsumerWidget {
         return null;
       },
     );
+
 
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
@@ -583,28 +584,61 @@ class TextInputPage extends ConsumerStatefulWidget {
 
 class _TextInputPageState extends ConsumerState<TextInputPage> {
   final _ctrl = TextEditingController();
+
+  // 録音用
+  final AudioRecorder _recorder = AudioRecorder();
+  String? _audioPath;  // ← 録音ファイルのパスをここに保持
+  bool _recording = false;
+
   bool _loading = false;
   Color? _resultColor;
 
-  Future<void> _send() async {
-    if (_ctrl.text.isEmpty) return;
-    setState(() => _loading = true);
-    final dio = Dio();
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
-    final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final url = dotenv.env['API_URL']! + '/diary';
-    try {
-      final res = await dio.post(
-        url,
-        data: FormData.fromMap({
-          'uid': uid,
-          'date': date,
-          'text': _ctrl.text,
-        }),
+  // ① 音声を録音 → 停止したらアップロード
+  Future<void> _toggleRecord() async {
+    if (_recording) {
+      // stop
+      await _recorder.stop();
+      final path = _audioPath;
+      setState(() {
+        _recording = false;
+        _audioPath = path;
+      });
+      if (path != null) await _sendAudio(path);  // ← 送信
+    } else {
+      // start
+      final dir = await getTemporaryDirectory();
+      final filePath =
+          '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+        ),
+        path: filePath,
       );
+      setState(() => _recording = true);
+      _audioPath = filePath;
+    }
+  }
+
+  // ② 音声ファイルを送信（← ここにご提示の Dio コードを挿入）
+  Future<void> _sendAudio(String file) async {
+    setState(() => _loading = true);
+    try {
+      final dio = Dio();
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
+      final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final form = FormData.fromMap({
+        'uid': uid,
+        'date': date,
+        'audio': await MultipartFile.fromFile(file, filename: 'audio.m4a'),
+      });
+      final apiUrl = dotenv.env['API_URL']!;
+      final res = await dio.post('$apiUrl/diary/audio', data: form);
+
       final xi = (res.data['x'] as num).toDouble();
       final yi = (res.data['y'] as num).toDouble();
-      final prefs = ref.watch(userPrefsProvider).value!;
+      final prefs = ref.read(userPrefsProvider).value!;
       final col = mixEmotionColors(
         bright: prefs.bright,
         dark: prefs.dark,
@@ -615,7 +649,49 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
       );
       setState(() => _resultColor = col);
     } catch (e) {
-      debugPrint('Error: \$e');
+      debugPrint('Audio send error: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _sendText() async {
+    if (_ctrl.text.isEmpty) return;
+    setState(() => _loading = true);
+    try {
+      final dio = Dio();
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
+      final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final url = '${dotenv.env['API_URL']!}/diary';
+      final res = await dio.post(
+        url,
+        data: FormData.fromMap({
+          'uid': uid,
+          'date': date,
+          'text': _ctrl.text,
+        }),
+      );
+
+      final xi = (res.data['x'] as num).toDouble();
+      final yi = (res.data['y'] as num).toDouble();
+      final prefs = ref.read(userPrefsProvider).value!;
+      final col = mixEmotionColors(
+        bright: prefs.bright,
+        dark: prefs.dark,
+        calm: prefs.calm,
+        energetic: prefs.energetic,
+        x: xi,
+        y: yi,
+      );
+      setState(() {
+        _resultColor = col;
+        _ctrl.clear();
+      });
+    } catch (e) {
+      debugPrint('Text send error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('テキスト送信に失敗しました')),
+      );
     } finally {
       setState(() => _loading = false);
     }
@@ -623,92 +699,93 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
 
   @override
   Widget build(BuildContext ctx) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
-    final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final docId = '\${uid}_\${date}';
-    final docRef = FirebaseFirestore.instance.collection('diary').doc(docId);
+    Future<void> _sendText() async {
+      if (_ctrl.text.isEmpty) return;
+      setState(() => _loading = true);
+      try {
+        final dio = Dio();
+        final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
+        final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final url = '${dotenv.env['API_URL']!}/diary';
+        final res = await dio.post(
+          url,
+          data: FormData.fromMap({
+            'uid': uid,
+            'date': date,
+            'text': _ctrl.text,
+          }),
+        );
+        final xi = (res.data['x'] as num).toDouble();
+        final yi = (res.data['y'] as num).toDouble();
+        final prefs = ref.read(userPrefsProvider).value!;
+        final col = mixEmotionColors(
+          bright: prefs.bright,
+          dark: prefs.dark,
+          calm: prefs.calm,
+          energetic: prefs.energetic,
+          x: xi,
+          y: yi,
+        );
+        setState(() {
+          _resultColor = col;
+          _ctrl.clear();
+        });
+      } catch (e) {
+        debugPrint('Text send error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('テキスト送信に失敗しました')),
+        );
+      } finally {
+        setState(() => _loading = false);
+      }
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('感情分析'),
-        leading: BackButton(onPressed: () => context.pop()),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _ctrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: '今日あったこと・思ったこと',
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loading ? null : _send,
-              child: _loading
-                  ? const CircularProgressIndicator()
-                  : const Text('分析'),
-            ),
-            const SizedBox(height: 24),
-            if (_resultColor != null) ...[
-              const Text('結果のカラーコード:'),
-              const SizedBox(height: 8),
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  color: _resultColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.black26),
-                ),
-              ),
-              const SizedBox(height: 24),
-              StreamBuilder(
-                stream: docRef.snapshots(),
-                builder: (context, AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snap) {
-                  if (!snap.hasData || !snap.data!.exists) {
-                    return const SizedBox.shrink();
-                  }
-                  final data = snap.data!.data()!;
-                  final x = (data['x'] as num).toDouble();
-                  final y = (data['y'] as num).toDouble();
-                  final prefs = ref.watch(userPrefsProvider).value!;
-                  final col2 = mixEmotionColors(
-                    bright: prefs.bright,
-                    dark: prefs.dark,
-                    calm: prefs.calm,
-                    energetic: prefs.energetic,
-                    x: x,
-                    y: y,
-                  );
-                  return SizedBox(
-                    height: 240,
-                    child: ScatterChart(
-                      ScatterChartData(
-                        minX: -10, maxX: 10, minY: -10, maxY: 10,
-                        gridData: FlGridData(show: true),
-                        borderData: FlBorderData(show: true),
-                        titlesData: FlTitlesData(
-                          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-                          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-                        ),
-                        scatterSpots: [
-                          ScatterSpot(
-                            x, y,
-                            dotPainter: FlDotCirclePainter(color: Colors.red, radius: 8),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ],
+    appBar: AppBar(title: const Text('感情分析')),
+    body: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(children: [
+    // -------------- テキスト入力エリア -----------------
+    TextField(
+    controller: _ctrl,
+    maxLines: 3,
+    decoration: const InputDecoration(
+    border: OutlineInputBorder(),
+    labelText: '今日あったこと・思ったこと',
+    ),
+    ),
+    const SizedBox(height: 8),
+    // ---------- テキスト送信ボタン ----------
+    ElevatedButton(
+    onPressed: _loading ? null : _sendText,
+    child: _loading
+    ? const CircularProgressIndicator()
+        : const Text('テキスト分析'),
+    ),
+    const SizedBox(height: 24),
+    // ---------- 音声録音ボタン ----------
+    ElevatedButton.icon(
+    icon: Icon(_recording ? Icons.stop : Icons.mic),
+    label:
+    Text(_recording ? '録音停止 & 送信' : '音声で入力（長押し可）'),
+    onPressed: _loading ? null : _toggleRecord,
+    ),
+    const SizedBox(height: 24),
+    // ---------- 結果表示 ----------
+    if (_resultColor != null) ...[
+      const Text('結果のカラーコード:'),
+      const SizedBox(height: 8),
+      Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+        color: _resultColor,
+        borderRadius: BorderRadius.circular(8),
         ),
       ),
+    ],
+    ]),
+    ),
     );
   }
 }
@@ -867,27 +944,25 @@ class MoodGraphPainter extends CustomPainter {
         right: true);
 
     // 中央の四辺（High/Low）
-    // 上中央：High arousal（↓に移動）
     _drawTextCenter(
       canvas,
-      'High arousal',
-      Offset(halfW, edgePad + vOffset),      // ← edgePad に +vOffset
+      '覚醒\n(arousing)',
+      Offset(halfW, edgePad + vOffset),
     );
 
-    // 下中央：Low arousal（↑に移動）
     _drawTextCenter(
       canvas,
-      'Low arousal',
-      Offset(halfW, h - edgePad - vOffset - 14), // ← -vOffset
+      '沈静(sleepy)',
+      Offset(halfW, h - edgePad - vOffset - 14),
     );            // 下中央
 
     _drawTextCenter(canvas,
-        'Low valence\n[Negative]',
+        '不快\n(unpleasure)',
         Offset(edgePad, halfH),
         align: TextAlign.left, anchorCenter: true);   // 左中央
 
     _drawTextCenter(canvas,
-        'High valence\n[Positive]',
+        '快\n(Preasure)',
         Offset(w - edgePad, halfH),
         align: TextAlign.right, anchorCenter: true);  // 右中央
   }
@@ -899,7 +974,7 @@ class MoodGraphPainter extends CustomPainter {
         text: s,
         style: const TextStyle(fontSize: 11, color: Colors.black87),
       ),
-      textDirection: ui.TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,  //ui.が必要
     )..layout(maxWidth: maxW);
     tp.paint(canvas, pos);
   }
@@ -913,7 +988,7 @@ class MoodGraphPainter extends CustomPainter {
         style: const TextStyle(fontSize: 11, color: Colors.black87),
       ),
       textAlign: align,
-      textDirection: ui.TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,  //ui.が必要
     )..layout();
     final dx = anchorCenter ? pos.dx - (align == TextAlign.right ? tp.width : 0)
         : pos.dx - tp.width / 2;

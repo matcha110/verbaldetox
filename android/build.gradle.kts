@@ -6,9 +6,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        // Android Gradle Plugin のバージョンはプロジェクトのものに合わせてください
         classpath("com.android.tools.build:gradle:7.4.2")
-        // Firebase Android Services プラグイン
         classpath("com.google.gms:google-services:4.3.15")
     }
 }
