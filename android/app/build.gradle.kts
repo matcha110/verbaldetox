@@ -46,11 +46,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
-
-    // その他依存
-    implementation("io.flutter:flutter_embedding_debug:1.0.0")
 }
 
 flutter {
     source = "../.."
 }
+

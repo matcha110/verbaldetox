@@ -27,22 +27,29 @@ class _AudioRecordPageState extends ConsumerState<AudioRecordPage> {
   }
 
   Future<void> _startRecording() async {
-    if (!await _recorder.hasPermission()) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('マイクの権限がありません')));
+    // 1) マイク権限のチェック＆リクエスト
+    final permitted = await _recorder.hasPermission();
+    if (!permitted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('マイクの使用許可が必要です')),
+      );
       return;
     }
+
+    // 2) ファイルパス作成（FLAC）
     final dir = await getTemporaryDirectory();
-    final name =
-        'audio_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.m4a';
+    final name = 'audio_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.flac';
     final path = '${dir.path}/$name';
 
-    // RecordConfig を渡す
+    // 3) 録音開始（FLAC + サンプリングレート指定）
     await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
+      const RecordConfig(
+        encoder: AudioEncoder.flac,
+        bitRate: 128000,
+      ),
       path: path,
     );
+
     setState(() {
       _isRecording = true;
       _filePath = path;

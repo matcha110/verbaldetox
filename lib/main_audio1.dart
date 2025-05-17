@@ -11,10 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:verbaldetox/AudioRecordPage.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'firebase_options.dart';
-import 'package:flutter/material.dart';
+
 import 'firebase_options.dart';
 import 'utils/color_mix.dart';        // mixEmotionColors() の定義
 import 'providers/user_prefs.dart';   // userPrefsProvider の定義
@@ -120,16 +117,12 @@ class AppShell extends ConsumerWidget {
       ),
       body: child,
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: Colors.black,
-        unselectedItemColor: Colors.black54,
         currentIndex: selected,
         onTap: (idx) => _onItemTapped(context, idx),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home),   label: 'HOME'),
           BottomNavigationBarItem(icon: Icon(Icons.book),   label: '日記'),
-          BottomNavigationBarItem(icon: Icon(Icons.mic),    label: '録音'),
+          BottomNavigationBarItem(icon: Icon(Icons.mic),    label: '録音'),        // ← 追加
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'プロフィール'),
         ],
       ),
@@ -182,11 +175,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
-  );
-// App Check を Debug プロバイダで有効化
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-    appleProvider: AppleProvider.debug,
   );
   runApp(const ProviderScope(child: VerbalDetoxApp()));
 }
@@ -620,10 +608,10 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
       // start
       final dir = await getTemporaryDirectory();
       final filePath =
-          '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.flac';
+          '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.m4a';
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.flac,
+          encoder: AudioEncoder.aacLc,
           bitRate: 128000,
         ),
         path: filePath,
@@ -643,7 +631,7 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
       final form = FormData.fromMap({
         'uid': uid,
         'date': date,
-        'audio': await MultipartFile.fromFile(file, filename: 'audio.flac'),
+        'audio': await MultipartFile.fromFile(file, filename: 'audio.m4a'),
       });
       final apiUrl = dotenv.env['API_URL']!;
       final res = await dio.post('$apiUrl/diary/audio', data: form);
@@ -753,51 +741,51 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
     }
 
     return Scaffold(
-    appBar: AppBar(title: const Text('感情分析')),
-    body: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(children: [
-    // -------------- テキスト入力エリア -----------------
-    TextField(
-    controller: _ctrl,
-    maxLines: 3,
-    decoration: const InputDecoration(
-    border: OutlineInputBorder(),
-    labelText: '今日あったこと・思ったこと',
-    ),
-    ),
-    const SizedBox(height: 8),
-    // ---------- テキスト送信ボタン ----------
-    ElevatedButton(
-    onPressed: _loading ? null : _sendText,
-    child: _loading
-    ? const CircularProgressIndicator()
-        : const Text('テキスト分析'),
-    ),
-    const SizedBox(height: 24),
-    // ---------- 音声録音ボタン ----------
-    ElevatedButton.icon(
-    icon: Icon(_recording ? Icons.stop : Icons.mic),
-    label:
-    Text(_recording ? '録音停止 & 送信' : '音声で入力（長押し可）'),
-    onPressed: _loading ? null : _toggleRecord,
-    ),
-    const SizedBox(height: 24),
-    // ---------- 結果表示 ----------
-    if (_resultColor != null) ...[
-      const Text('結果のカラーコード:'),
-      const SizedBox(height: 8),
-      Container(
-        width: 100,
-        height: 100,
-        decoration: BoxDecoration(
-        color: _resultColor,
-        borderRadius: BorderRadius.circular(8),
-        ),
+      appBar: AppBar(title: const Text('感情分析')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(children: [
+          // -------------- テキスト入力エリア -----------------
+          TextField(
+            controller: _ctrl,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: '今日あったこと・思ったこと',
+            ),
+          ),
+          const SizedBox(height: 8),
+          // ---------- テキスト送信ボタン ----------
+          ElevatedButton(
+            onPressed: _loading ? null : _sendText,
+            child: _loading
+                ? const CircularProgressIndicator()
+                : const Text('テキスト分析'),
+          ),
+          const SizedBox(height: 24),
+          // ---------- 音声録音ボタン ----------
+          ElevatedButton.icon(
+            icon: Icon(_recording ? Icons.stop : Icons.mic),
+            label:
+            Text(_recording ? '録音停止 & 送信' : '音声で入力（長押し可）'),
+            onPressed: _loading ? null : _toggleRecord,
+          ),
+          const SizedBox(height: 24),
+          // ---------- 結果表示 ----------
+          if (_resultColor != null) ...[
+            const Text('結果のカラーコード:'),
+            const SizedBox(height: 8),
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: _resultColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ],
+        ]),
       ),
-    ],
-    ]),
-    ),
     );
   }
 }
