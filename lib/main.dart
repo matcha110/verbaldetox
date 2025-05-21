@@ -140,10 +140,24 @@ class AppShell extends ConsumerWidget {
 /// 日付→Color を保持する StateNotifier
 class HeatmapNotifier extends StateNotifier<Map<DateTime, Map<String,double>>> {
   HeatmapNotifier() : super({}) {
-    _sub = _db.collection('diary').snapshots().listen((snap) {
+    // FirebaseAuth から現在の uid を取得
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      // 未ログイン時のフォールバック
+      state = {};
+      return;
+    }
+
+    _sub = _db
+        .collection('users')
+        .doc(uid)
+        .collection('diary')
+        .snapshots()
+        .listen((snap) {
       final m = <DateTime, Map<String,double>>{};
       for (final doc in snap.docs) {
         final data = doc.data();
+        // date, x, y をパースする部分はそのまま
         final parts = (data['date'] as String).split('-');
         if (parts.length != 3) continue;
         final date = DateTime(
@@ -369,17 +383,36 @@ class _HomePageState extends ConsumerState<HomePage> {
     return prefsAsync.when(
       data: (prefs) {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('diary').snapshots(),
+          stream: () {
+            final uid = FirebaseAuth.instance.currentUser?.uid;
+            if (uid == null) {
+              return Stream< QuerySnapshot<Map<String, dynamic>> >.empty();
+            }
+            return FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .collection('diary')
+                .snapshots();
+          }(),
           builder: (context, snap) {
-            if (!snap.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            if (!snap.hasData) {
+              return const Scaffold(
+                  body: Center(child: CircularProgressIndicator())
+              );
+            }
             final dataMap = <DateTime, Color>{};
             for (var doc in snap.data!.docs) {
               final d = doc.data();
+              // date→Color の生成ロジックはそのまま
               final ds = d['date'] as String?;
               if (ds == null) continue;
               final parts = ds.split('-');
               if (parts.length != 3) continue;
-              final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+              final date = DateTime(
+                int.parse(parts[0]),
+                int.parse(parts[1]),
+                int.parse(parts[2]),
+              );
               final x = (d['x'] as num? ?? 0).toDouble();
               final y = (d['y'] as num? ?? 0).toDouble();
               dataMap[date] = mixEmotionColors(

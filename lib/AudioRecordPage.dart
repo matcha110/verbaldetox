@@ -6,6 +6,12 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:dio/dio.dart';
+import 'package:path/path.dart';              // basename 用
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'package:http_parser/http_parser.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AudioRecordPage extends ConsumerStatefulWidget {
   const AudioRecordPage({Key? key}) : super(key: key);
@@ -26,7 +32,7 @@ class _AudioRecordPageState extends ConsumerState<AudioRecordPage> {
     super.dispose();
   }
 
-  Future<void> _startRecording() async {
+  Future<void> _startRecording(BuildContext context) async {
     // 1) マイク権限のチェック＆リクエスト
     final permitted = await _recorder.hasPermission();
     if (!permitted) {
@@ -61,35 +67,63 @@ class _AudioRecordPageState extends ConsumerState<AudioRecordPage> {
     setState(() => _isRecording = false);
   }
 
-  Future<void> _uploadToStorage() async {
-    if (_filePath == null) return;
-    setState(() => _isUploading = true);
+  // Future<void> _uploadToStorage() async {
+  //   if (_filePath == null) return;
+  //   setState(() => _isUploading = true);
+  //
+  //   final user = FirebaseAuth.instance.currentUser;
+  //   if (user == null) {
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(const SnackBar(content: Text('ログインしてください')));
+  //     setState(() => _isUploading = false);
+  //     return;
+  //   }
+  //
+  //   final file = File(_filePath!);
+  //   final ref = FirebaseStorage.instance.ref().child(
+  //     'recordings/${user.uid}/${file.uri.pathSegments.last}',
+  //   );
+  //   try {
+  //     await ref.putFile(file);
+  //     final url = await ref.getDownloadURL();
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(SnackBar(content: Text('アップロード完了:\n$url')));
+  //   } catch (e) {
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(SnackBar(content: Text('アップロード失敗: $e')));
+  //   } finally {
+  //     setState(() => _isUploading = false);
+  //   }
+  // }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('ログインしてください')));
-      setState(() => _isUploading = false);
-      return;
-    }
+  Future<void> _uploadToBackend(String filePath) async {
+    final dio = Dio();
+    final uid  = FirebaseAuth.instance.currentUser?.uid ?? 'anon';
+    final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    final file = File(_filePath!);
-    final ref = FirebaseStorage.instance.ref().child(
-      'recordings/${user.uid}/${file.uri.pathSegments.last}',
+    final form = FormData.fromMap({
+      'uid'       : uid,
+      'date'      : date,
+      'audio': await MultipartFile.fromFile(
+        filePath,
+        filename: basename(filePath),
+        contentType: MediaType('audio', 'flac'),
+      ),
+    });
+
+    final resp = await dio.post(
+      '${dotenv.env['API_URL']!}/diary/audio',
+      data: form,
     );
-    try {
-      await ref.putFile(file);
-      final url = await ref.getDownloadURL();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('アップロード完了:\n$url')));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('アップロード失敗: $e')));
-    } finally {
-      setState(() => _isUploading = false);
+
+    if (resp.statusCode == 200) {
+      // 成功時の処理
+      final data = resp.data;
+    } else {
+      throw Exception('音声解析エラー: ${resp.statusCode}');
     }
   }
 
@@ -107,16 +141,25 @@ class _AudioRecordPageState extends ConsumerState<AudioRecordPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isRecording ? Colors.red : null,
               ),
-              onPressed: _isRecording ? _stopRecording : _startRecording,
+              onPressed: () {
+                 if (_isRecording) {
+                   _stopRecording();                  // 録音停止
+                 } else {
+                   _startRecording(context);          // 録音開始
+                 }
+               },
             ),
             const SizedBox(height: 24),
             if (_filePath != null) Text('ファイル: ${_filePath!.split('/').last}'),
             const Spacer(),
             ElevatedButton.icon(
-              icon: const Icon(Icons.cloud_upload),
-              label:
-                  _isUploading ? const Text('アップロード中…') : const Text('アップロード'),
-              onPressed: _isUploading ? null : _uploadToStorage,
+            icon: const Icon(Icons.cloud_upload),
+            label: _isUploading ? Text('送信中…') : Text('送信'),
+            onPressed: () {
+            if (_filePath != null) {
+              _uploadToBackend(_filePath!);
+                }
+              },
             ),
           ],
         ),
