@@ -403,7 +403,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             final dataMap = <DateTime, Color>{};
             for (var doc in snap.data!.docs) {
               final d = doc.data();
-              // date→Color の生成ロジックはそのまま
               final ds = d['date'] as String?;
               if (ds == null) continue;
               final parts = ds.split('-');
