@@ -25,6 +25,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'ColorSetupPage.dart';
 
 
 /// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
@@ -220,6 +221,7 @@ class VerbalDetoxApp extends ConsumerWidget {
       routes: [
         GoRoute(path: '/login',  builder: (_, __) => const LoginPage()),
         GoRoute(path: '/signup', builder: (_, __) => const SignupPage()),
+        GoRoute(path: '/color-setup', builder: (_, __) => const ColorSetupPage()),
         ShellRoute(
           builder: (ctx, state, child) => AppShell(child: child),
           routes: [
@@ -351,7 +353,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
               setState(() => _loading = true);
               try {
                 await auth.signUpWithEmail(_email, _pass);
-                context.go('/');
+                context.go('/color-setup');
               } on FirebaseAuthException {
                 // TODO: エラー表示
               }
@@ -470,20 +472,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                             children: weekLabels
                                 .map((w) => Expanded(
                               child: Center(
-                                  child: Text(
-                                    w,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                  )),
+                                child: Text(
+                                  w,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
                             ))
-                                .toList(),
+                            .toList(),
                           ),
                           const SizedBox(height: 8),
+                          // ExpandedでGridViewだけをラップ
                           Expanded(
                             child: GridView.builder(
                               physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 7,
                                 childAspectRatio: 1,
                                 mainAxisSpacing: 4,
@@ -494,25 +496,89 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 final date = cells[idx];
                                 if (date == null) return const SizedBox();
                                 final col = dataMap[date] ?? Colors.grey.shade300;
-                                return Container(
+                                return Material(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                // 日付タップ時の処理（未使用でもOK）
+                                },
+                                child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 120),
+                                curve: Curves.easeOut,
                                   decoration: BoxDecoration(
                                     color: col,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.black12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.grey.shade400,
+                                      width: 2.2,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
                                   alignment: Alignment.topLeft,
                                   padding: const EdgeInsets.all(4),
                                   child: _showText
                                       ? Text(
                                     '${date.day}',
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white),
+                                    style: const TextStyle(fontSize: 12, color: Colors.white),
                                   )
-                                      : null,
+                                  : null,
+                                ),
+                                ),
                                 );
                               },
                             ),
+                          ),
+                          // カレンダー本体（Expandedの後）に
+                          Builder(
+                            builder: (context) {
+                              final today = DateTime.now();
+                              final todayKey = DateTime(today.year, today.month, today.day);
+                              final message = dataMap[todayKey] == null
+                                  ? "今日はまだ記録がありません"
+                                  : "今月も素敵な日々を";
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      message,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        fontFamily: "sans-serif",
+                                        letterSpacing: 1.0,
+                                      ),
+                                    ),
+                                    // ここがグラデーション線
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 8),
+                                      height: 3,
+                                      width: 80,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(1.5),
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.teal.shade50,
+                                            Colors.grey.shade300,
+                                            Colors.teal.shade50,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -565,20 +631,25 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     return Container(
                                       decoration: BoxDecoration(
                                         color: col,
-                                        borderRadius:
-                                        BorderRadius.circular(2),
+                                        borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
+                                          color: Colors.grey.shade400,
+                                          width: 2.2,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
                                             color: Colors.black12,
-                                            width: 0.5),
+                                            blurRadius: 4,
+                                            offset: Offset(0, 2),
+                                          ),
+                                        ],
                                       ),
                                       alignment: Alignment.topLeft,
-                                      padding: const EdgeInsets.all(2),
+                                      padding: const EdgeInsets.all(4),
                                       child: _showText
                                           ? Text(
                                         '${date.day}',
-                                        style: const TextStyle(
-                                            fontSize: 8,
-                                            color: Colors.white),
+                                        style: const TextStyle(fontSize: 12, color: Colors.white),
                                       )
                                           : null,
                                     );
