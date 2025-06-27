@@ -25,6 +25,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'ColorSetupPage.dart';
 
 
 /// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
@@ -80,9 +81,8 @@ class AppShell extends ConsumerWidget {
   const AppShell({Key? key, required this.child}) : super(key: key);
 
   int _calculateSelectedIndex(String location) {
-    if (location.startsWith('/input')) return 1;
-    if (location.startsWith('/record')) return 2;   // ← 追加
-    if (location.startsWith('/settings')) return 3;
+    if (location.startsWith('/record')) return 1;
+    if (location.startsWith('/settings')) return 2;
     return 0;
   }
 
@@ -92,12 +92,9 @@ class AppShell extends ConsumerWidget {
         context.go('/');
         break;
       case 1:
-        context.go('/input');
+        context.go('/record');
         break;
       case 2:
-        context.go('/record');    // ← 追加
-        break;
-      case 3:
         context.go('/settings');
         break;
     }
@@ -105,17 +102,12 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 現在のルート情報から location を取得
     final state = GoRouterState.of(context);
     final location = state.uri.toString();
     final selected = _calculateSelectedIndex(location);
 
     return Scaffold(
       appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Image.asset('assets/logo.png'), // ロゴ画像
-        ),
         title: const Text('気分屋の芝日記'),
       ),
       body: child,
@@ -127,9 +119,8 @@ class AppShell extends ConsumerWidget {
         currentIndex: selected,
         onTap: (idx) => _onItemTapped(context, idx),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home),   label: 'HOME'),
-          BottomNavigationBarItem(icon: Icon(Icons.book),   label: '日記'),
-          BottomNavigationBarItem(icon: Icon(Icons.mic),    label: '録音'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'HOME'),
+          BottomNavigationBarItem(icon: Icon(Icons.mic), label: '録音'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'プロフィール'),
         ],
       ),
@@ -140,10 +131,24 @@ class AppShell extends ConsumerWidget {
 /// 日付→Color を保持する StateNotifier
 class HeatmapNotifier extends StateNotifier<Map<DateTime, Map<String,double>>> {
   HeatmapNotifier() : super({}) {
-    _sub = _db.collection('diary').snapshots().listen((snap) {
+    // FirebaseAuth から現在の uid を取得
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      // 未ログイン時のフォールバック
+      state = {};
+      return;
+    }
+
+    _sub = _db
+        .collection('users')
+        .doc(uid)
+        .collection('diary')
+        .snapshots()
+        .listen((snap) {
       final m = <DateTime, Map<String,double>>{};
       for (final doc in snap.docs) {
         final data = doc.data();
+        // date, x, y をパースする部分はそのまま
         final parts = (data['date'] as String).split('-');
         if (parts.length != 3) continue;
         final date = DateTime(
@@ -204,15 +209,15 @@ class VerbalDetoxApp extends ConsumerWidget {
         FirebaseAuth.instance.authStateChanges(),
       ),
       routes: [
-        GoRoute(path: '/login',  builder: (_, __) => const LoginPage()),
+        GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
         GoRoute(path: '/signup', builder: (_, __) => const SignupPage()),
+        GoRoute(path: '/color-setup', builder: (_, __) => const ColorSetupPage()),
         ShellRoute(
           builder: (ctx, state, child) => AppShell(child: child),
           routes: [
-            GoRoute(path: '/',       builder: (_, __) => const HomePage()),
-            GoRoute(path: '/input',  builder: (_, __) => const TextInputPage()),
+            GoRoute(path: '/', builder: (_, __) => const HomePage()),
             GoRoute(path: '/record', builder: (_, __) => const AudioRecordPage()),
-            GoRoute(path: '/settings',builder: (_, __) => const SettingsPage()),
+            GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
           ],
         ),
       ],
@@ -225,6 +230,7 @@ class VerbalDetoxApp extends ConsumerWidget {
         return null;
       },
     );
+
 
 
     return MaterialApp.router(
@@ -337,7 +343,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
               setState(() => _loading = true);
               try {
                 await auth.signUpWithEmail(_email, _pass);
-                context.go('/');
+                context.go('/color-setup');
               } on FirebaseAuthException {
                 // TODO: エラー表示
               }
@@ -369,9 +375,23 @@ class _HomePageState extends ConsumerState<HomePage> {
     return prefsAsync.when(
       data: (prefs) {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('diary').snapshots(),
+          stream: () {
+            final uid = FirebaseAuth.instance.currentUser?.uid;
+            if (uid == null) {
+              return Stream< QuerySnapshot<Map<String, dynamic>> >.empty();
+            }
+            return FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .collection('diary')
+                .snapshots();
+          }(),
           builder: (context, snap) {
-            if (!snap.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            if (!snap.hasData) {
+              return const Scaffold(
+                  body: Center(child: CircularProgressIndicator())
+              );
+            }
             final dataMap = <DateTime, Color>{};
             for (var doc in snap.data!.docs) {
               final d = doc.data();
@@ -379,7 +399,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               if (ds == null) continue;
               final parts = ds.split('-');
               if (parts.length != 3) continue;
-              final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+              final date = DateTime(
+                int.parse(parts[0]),
+                int.parse(parts[1]),
+                int.parse(parts[2]),
+              );
               final x = (d['x'] as num? ?? 0).toDouble();
               final y = (d['y'] as num? ?? 0).toDouble();
               dataMap[date] = mixEmotionColors(
@@ -417,15 +441,6 @@ class _HomePageState extends ConsumerState<HomePage> {
                   bottom: const TabBar(
                     tabs: [Tab(text: '月表示'), Tab(text: '年表示')],
                   ),
-                  actions: [
-                    IconButton(
-                      icon: const Icon(Icons.logout),
-                      onPressed: () async {
-                        await ref.read(authProvider).signOut();
-                        context.go('/login');
-                      },
-                    ),
-                  ],
                 ),
                 body: TabBarView(
                   children: [
@@ -438,20 +453,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                             children: weekLabels
                                 .map((w) => Expanded(
                               child: Center(
-                                  child: Text(
-                                    w,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                  )),
+                                child: Text(
+                                  w,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
                             ))
-                                .toList(),
+                            .toList(),
                           ),
                           const SizedBox(height: 8),
+                          // ExpandedでGridViewだけをラップ
                           Expanded(
                             child: GridView.builder(
                               physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 7,
                                 childAspectRatio: 1,
                                 mainAxisSpacing: 4,
@@ -462,25 +477,89 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 final date = cells[idx];
                                 if (date == null) return const SizedBox();
                                 final col = dataMap[date] ?? Colors.grey.shade300;
-                                return Container(
+                                return Material(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                // 日付タップ時の処理（未使用でもOK）
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 120),
+                                  curve: Curves.easeOut,
                                   decoration: BoxDecoration(
                                     color: col,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.black12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.grey.shade400,
+                                      width: 2.2,
+                                    ),
+                                    boxShadow: [
+                                      const BoxShadow(
+                                        color: Colors.black12,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
                                   alignment: Alignment.topLeft,
                                   padding: const EdgeInsets.all(4),
                                   child: _showText
                                       ? Text(
                                     '${date.day}',
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white),
+                                    style: const TextStyle(fontSize: 12, color: Colors.black),
                                   )
                                       : null,
+                                ),
+                                ),
                                 );
                               },
                             ),
+                          ),
+                          // カレンダー本体（Expandedの後）に
+                          Builder(
+                            builder: (context) {
+                              final today = DateTime.now();
+                              final todayKey = DateTime(today.year, today.month, today.day);
+                              final message = dataMap[todayKey] == null
+                                  ? "今日はまだ記録がありません"
+                                  : "今月も素敵な日々を";
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      message,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        fontFamily: "sans-serif",
+                                        letterSpacing: 1.0,
+                                      ),
+                                    ),
+                                    // ここがグラデーション線
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 8),
+                                      height: 3,
+                                      width: 80,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(1.5),
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.teal.shade50,
+                                            Colors.grey.shade300,
+                                            Colors.teal.shade50,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -516,12 +595,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                               const SizedBox(height: 4),
                               Expanded(
                                 child: GridView.builder(
-                                  physics:
-                                  const NeverScrollableScrollPhysics(),
-                                  gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                     crossAxisCount: 7,
-                                    childAspectRatio: 1,
+                                    childAspectRatio: 1.1,
                                     mainAxisSpacing: 2,
                                     crossAxisSpacing: 2,
                                   ),
@@ -533,26 +610,25 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     return Container(
                                       decoration: BoxDecoration(
                                         color: col,
-                                        borderRadius:
-                                        BorderRadius.circular(2),
+                                        borderRadius: BorderRadius.circular(6),
                                         border: Border.all(
-                                            color: Colors.black12,
-                                            width: 0.5),
+                                          color: Colors.grey.shade400,
+                                          width: 1.5,
+                                        ),
                                       ),
                                       alignment: Alignment.topLeft,
                                       padding: const EdgeInsets.all(2),
                                       child: _showText
                                           ? Text(
                                         '${date.day}',
-                                        style: const TextStyle(
-                                            fontSize: 8,
-                                            color: Colors.white),
+                                        style: const TextStyle(fontSize: 10, color: Colors.black),
                                       )
                                           : null,
                                     );
                                   },
                                 ),
                               ),
+
                             ],
                           );
                         }),
@@ -565,7 +641,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
-                      const Text('文字'),
+                      const Text('カレンダーの文字表示'),
                       Switch(
                         value: _showText,
                         onChanged: (v) => setState(() => _showText = v),
@@ -604,32 +680,22 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
 
   bool _loading = false;
   Color? _resultColor;
+  String? _transcript;
 
   // ① 音声を録音 → 停止したらアップロード
   Future<void> _toggleRecord() async {
     if (_recording) {
-      // stop
-      await _recorder.stop();
-      final path = _audioPath;
-      setState(() {
-        _recording = false;
-        _audioPath = path;
-      });
-      if (path != null) await _sendAudio(path);  // ← 送信
+      final path = await _recorder.stop();
+      setState(() => _recording = false);
+      if (path != null) await _sendAudio(path);
     } else {
-      // start
       final dir = await getTemporaryDirectory();
-      final filePath =
-          '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.flac';
+      final filePath = '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.flac';
       await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.flac,
-          bitRate: 128000,
-        ),
+        const RecordConfig(encoder: AudioEncoder.flac, bitRate: 128000),
         path: filePath,
       );
       setState(() => _recording = true);
-      _audioPath = filePath;
     }
   }
 
@@ -659,7 +725,13 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
         x: xi,
         y: yi,
       );
-      setState(() => _resultColor = col);
+
+      final transcript = res.data['transcript'] as String? ?? '文字起こしデータがありません。';
+
+      setState(() {
+        _resultColor = col;
+        _transcript = transcript;
+      });
     } catch (e) {
       debugPrint('Audio send error: $e');
     } finally {
@@ -803,12 +875,18 @@ class _TextInputPageState extends ConsumerState<TextInputPage> {
 }
 
 /// 個人設定画面
-class SettingsPage extends ConsumerWidget {
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({Key? key}) : super(key: key);
+  @override
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends ConsumerState<SettingsPage> {
+  bool _showText = false;
 
   @override
-  Widget build(BuildContext c, WidgetRef ref) {
-    final user  = FirebaseAuth.instance.currentUser!;
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser!;
     final prefs = ref.watch(userPrefsProvider).value!;
 
     return Scaffold(
@@ -816,17 +894,48 @@ class SettingsPage extends ConsumerWidget {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Email: ${user.email}'),
+            // メールアドレス表示
+            Text('Email: ${user.email}', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 24),
 
-            Padding(
-              padding: const EdgeInsets.all(16),
+            // 「感情の色設定」テキスト
+            const Text(
+              '感情の色設定',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // グラフ表示
+            Expanded(
               child: MoodQuadrant(
                 bright: prefs.bright,
                 calm: prefs.calm,
                 energetic: prefs.energetic,
                 dark: prefs.dark,
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // ログアウトボタン
+            Center(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.logout),
+                label: const Text('ログアウト'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  textStyle: const TextStyle(fontSize: 16),
+                ),
+                onPressed: () async {
+                  await ref.read(authProvider).signOut();
+                  context.go('/login');
+                },
               ),
             ),
           ],
