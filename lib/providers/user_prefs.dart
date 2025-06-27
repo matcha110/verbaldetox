@@ -13,10 +13,10 @@ final userPrefsProvider = FutureProvider<UserPrefs>((ref) async {
       .get();
   final d = snap.data() ?? {};
   return UserPrefs(
-    bright:    hexToColor(d['brightColor'] ?? '0xFFFFF1B6'),
+    bright:    hexToColor(d['energeticColor'] ?? '0xFFFFC1CC'), // ストレス、緊張
     calm:      hexToColor(d['calmColor'] ?? '0xFFD0F5BE'),
     dark:      hexToColor(d['darkColor'] ?? '0xFFE7E7EB'),
-    energetic: hexToColor(d['energeticColor'] ?? '0xFFFFC1CC'),
+    energetic: hexToColor(d['brightColor'] ?? '0xFFFFF1B6'), // わくわく、楽しい
   );
 });
 
