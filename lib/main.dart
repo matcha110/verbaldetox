@@ -26,6 +26,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'ColorSetupPage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 
 /// 🔄 Stream を監視して GoRouter の redirect を再評価させるリスナ
@@ -188,11 +189,14 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-// App Check を Debug プロバイダで有効化
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-    appleProvider: AppleProvider.debug,
-  );
+  if (kIsWeb) {
+  } else {
+  // App Check を Debug プロバイダで有効化
+    await FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+      appleProvider: AppleProvider.debug,
+    );
+  }
   await FirebaseAuth.instance.authStateChanges().first;
   runApp(const ProviderScope(child: VerbalDetoxApp()));
 }

@@ -23,7 +23,7 @@
     "public": "build/web",
     "ignore": [
       "firebase.json",
-      "**/.*",
+      "**/.* !**/.env",
       "**/node_modules/**"
     ],
     "rewrites": [

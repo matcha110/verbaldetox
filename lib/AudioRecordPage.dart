@@ -11,6 +11,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:verbaldetox/utils/color_mix.dart';
 import 'package:verbaldetox/providers/user_prefs.dart';
+// const String apiUrl = String.fromEnvironment('API_URL', defaultValue: '');
 
 class AudioRecordPage extends ConsumerStatefulWidget {
   const AudioRecordPage({Key? key}) : super(key: key);
