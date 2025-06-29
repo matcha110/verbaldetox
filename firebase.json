@@ -1,1 +1,36 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"zenn-hackthon-2","appId":"1:160302376986:android:9f967a275901f65f5489a3","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"zenn-hackthon-2","configurations":{"android":"1:160302376986:android:9f967a275901f65f5489a3","ios":"1:160302376986:ios:8a80424733b7b2345489a3","macos":"1:160302376986:ios:8a80424733b7b2345489a3","web":"1:160302376986:web:c6a328c0c2df92705489a3","windows":"1:160302376986:web:55393fcec0639cc45489a3"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "zenn-hackthon-2",
+          "appId": "1:160302376986:android:9f967a275901f65f5489a3",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "zenn-hackthon-2",
+          "configurations": {
+            "android": "1:160302376986:android:9f967a275901f65f5489a3",
+            "web": "1:160302376986:web:c6a328c0c2df92705489a3"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "(public) build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
