@@ -193,6 +193,7 @@ Future<void> main() async {
     androidProvider: AndroidProvider.debug,
     appleProvider: AppleProvider.debug,
   );
+  await FirebaseAuth.instance.authStateChanges().first;
   runApp(const ProviderScope(child: VerbalDetoxApp()));
 }
 
